@@ -1,0 +1,13 @@
+base
+datasets
+graphics
+grDevices
+knitr
+maptools
+methods
+rgdal
+rgeos
+RODBC
+sp
+stats
+utils

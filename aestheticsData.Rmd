@@ -1,0 +1,249 @@
+Data for Analsysis of the Subjective Assessments for the 2007 NLA
+========================================================
+
+Build data.frame "Lakes" for analysis by merging data from the following sources
+
+1.  NLCD = NLCDdata for multiple buffers (300m, 1500m, 3000m and Buffer=max linear distance within lake)
+2.  NLA = NLA 2007 Data.  Note the Visual assessment categories ("SWIMMABILITY", "PRISTINE", "APPEALING", "BIOTIC_INTEGRITY","RECREATIONAL_VALUE") were converted to ordered factors.  Any categories with less than 100 observations (< 10% of sites) were added to the next highest category.
+3.  SHP = lake centroids, area, perimeter, and shoreline development index from the NLA Lake Poly shapefile
+4.  Morpho = Jeff's estimates of lake morphology.
+
+```{r setup, include=FALSE, echo=FALSE, cache=TRUE}
+  options(stringsAsFactors = FALSE)
+
+  #function to install (if needed) and load R packages by list
+    libs<-c('RODBC','sp','maptools','rgeos','rgdal') #list of packages to load
+  
+    installLoad<-function(pck)#user defined function
+    {
+      if(!pck%in%installed.packages()){install.packages(pck,repos="http://rweb.quant.ku.edu/cran/")}
+      require(pck, character.only = TRUE)
+    }
+  
+    lapply(libs,function(x) installLoad(x))  #Load/Install require packages
+```
+
+```{r getNLCD, include=FALSE, echo=FALSE, cache=TRUE}
+  #get lakeNLCD data
+		#data definitions
+			#browseURL('https://github.com/jhollist/cyanoLakes/blob/master/bryan/calcNLCD_ByLakeBuffer.md')
+
+		#load data -df name is "lakeNLCD"
+			load(url('https://github.com/jhollist/cyanoLakes/raw/master/bryan/calcNLCD_ByLakeBuffer.RDA'))
+
+  #separate lakeNLCD by width and type.  Buffer type can be 'MaxDist' (buffer width = max in lake distance) or
+																			 #'fixed' (Width=300, 1500 or 3000m)
+
+	#list of Varnames for lakeNLCD
+			VarNames<-c('NLA_ID','Comid','BufWidthM','PercentImperv','ImpervAreaKm2','BufferAreaKm2','BufferAreaKm2Adj',
+						'PercentNA','NLCD_NA_Km2','WaterKm2','IceSnowKm2','DevOpenKm2','DevLowKm2','DevMedKm2',
+						'DevHighKm2','BarrenKm2','DeciduousKm2','EvergreenKm2','MixedForKm2','ShrubKm2','GrassKm2',
+						'PastureKm2','CropsKm2','WoodyWetKm2','HerbWetKm2','NLCD_NA_Per','WaterPer','IceSnowPer',
+						'DevOpenPer','DevLowPer','DevMedPer','DevHighPer','BarrenPer','DeciduousPer','EvergreenPer',
+						'MixedForPer','ShrubPer','GrassPer','PasturePer','CropsPer','WoodyWetPer','HerbWetPer')
+		#for fixed buffers keep all varnames except c(3,6,7,9)
+		#for MaxDist buffers keep all varnames except c(6,7,9)
+	#make a df for each buffer type/width
+		aMaxDist<-lakeNLCD[lakeNLCD$BufType=='MaxDist',VarNames[-c(6,7,9)]]     #n=1156
+			names(aMaxDist)[4:ncol(aMaxDist)]<-paste(names(aMaxDist)[4:ncol(aMaxDist)],'_MaxDist',sep='') #rename variables
+				names(aMaxDist)[3]<-'MaxDist'
+		a300<-lakeNLCD[lakeNLCD$BufWidthM==300 & lakeNLCD$BufType=='fixed',VarNames[-c(3,6,7,9)]]     #n=1156
+			names(a300)[3:ncol(a300)]<-paste(names(a300)[3:ncol(a300)],'_300m',sep='') #rename variables
+		a1500<-lakeNLCD[lakeNLCD$BufWidthM==1500,VarNames[-c(3,6,7,9)]]   #n=1156
+			names(a1500)[3:ncol(a1500)]<-paste(names(a1500)[3:ncol(a1500)],'_1500m',sep='') #rename variables
+		a3000<-lakeNLCD[lakeNLCD$BufWidthM==3000,VarNames[-c(3,6,7,9)]]   #n=1156
+			names(a3000)[3:ncol(a3000)]<-paste(names(a3000)[3:ncol(a3000)],'_3000m',sep='') #rename variables
+
+	#merge the new buffer dfs
+		a<-merge(aMaxDist,a300,by=c('NLA_ID','Comid'))
+		a<-merge(a,a1500,by=c('NLA_ID','Comid'))
+		NLCD<-merge(a,a3000,by=c('NLA_ID','Comid'))
+```
+
+```{r getNLA, include=FALSE, echo=FALSE, cache=FALSE}
+#Get the NLA Data
+  con <- odbcConnectAccess('c:/bryan/EPA/Data/WaterbodyDatabase/WaterbodyDatabase.mdb')
+  NLA <- sqlQuery(con, "
+    SELECT tblNLA_WaterQualityData.SITE_ID, tblNLA_VisualAssessment.SWIMMABILITY, tblNLA_VisualAssessment.PRISTINE, tblNLA_VisualAssessment.APPEALING, tblNLA_VisualAssessment.BIOTIC_INTEGRITY, tblNLA_VisualAssessment.RECREATIONAL_VALUE, NLA2007Sites_DesignInfo.WSA_ECO9, NLA2007Sites_DesignInfo.DEPTHMAX, NLA2007Sites_DesignInfo.ELEV_PT, tblNLA_Habitat_Super_Metrics.RDis_IX, tblNLA_Habitat_Super_Metrics.RVegQ, tblNLA_Habitat_Super_Metrics.LitCvrQ, tblNLA_Habitat_Super_Metrics.LitRipCVQ, tblNLA_WaterQualityData.CHLA, tblNLA_WaterQualityData.DO2_2M, tblNLA_WaterQualityData.PH_FIELD, tblNLA_WaterQualityData.COND, tblNLA_WaterQualityData.ANC, tblNLA_WaterQualityData.TURB, tblNLA_WaterQualityData.TOC, tblNLA_WaterQualityData.DOC, tblNLA_WaterQualityData.NH4, tblNLA_WaterQualityData.NO3_NO2, tblNLA_WaterQualityData.NTL, tblNLA_WaterQualityData.PTL, tblNLA_WaterQualityData.CL, tblNLA_WaterQualityData.NO3, tblNLA_WaterQualityData.SO4, tblNLA_WaterQualityData.CA, tblNLA_WaterQualityData.MG, tblNLA_WaterQualityData.NA, tblNLA_WaterQualityData.K, tblNLA_WaterQualityData.COLOR, tblNLA_WaterQualityData.SIO2, tblNLA_WaterQualityData.H, tblNLA_WaterQualityData.OH, tblNLA_WaterQualityData.NH4ION, tblNLA_WaterQualityData.CATSUM, tblNLA_WaterQualityData.ANSUM2, tblNLA_WaterQualityData.ANDEF2, tblNLA_WaterQualityData.SOBC, tblNLA_WaterQualityData.BALANCE2, tblNLA_WaterQualityData.ORGION, tblNLA_WaterQualityData.CONCAL2, tblNLA_WaterQualityData.CONDHO2, tblNLA_WaterQualityData.SECMEAN
+FROM ((NLA2007Sites_DesignInfo INNER JOIN tblNLA_WaterQualityData ON (NLA2007Sites_DesignInfo.VISIT_NO = tblNLA_WaterQualityData.VISIT_NO) AND (NLA2007Sites_DesignInfo.SITE_ID = tblNLA_WaterQualityData.SITE_ID)) INNER JOIN tblNLA_Habitat_Super_Metrics ON (NLA2007Sites_DesignInfo.VISIT_NO = tblNLA_Habitat_Super_Metrics.VISIT_NO) AND (NLA2007Sites_DesignInfo.SITE_ID = tblNLA_Habitat_Super_Metrics.SITE_ID)) INNER JOIN tblNLA_VisualAssessment ON (NLA2007Sites_DesignInfo.VISIT_NO = tblNLA_VisualAssessment.VISIT_NO) AND (NLA2007Sites_DesignInfo.SITE_ID = tblNLA_VisualAssessment.SITE_ID)
+WHERE (((NLA2007Sites_DesignInfo.LAKE_SAMP)='Target_Sampled'));
+  ")
+  close(con)
+    names(NLA)[1]<-'NLA_ID' #rename SITE_ID to NLA_ID for consistency
+
+  #Create ordered factors for the subjective categories; 
+      #NOTE: categories with less than 100 observations are combined with the next higher catergory
+    #Appealing
+      table(NLA$APPEALING,useNA = c("ifany")) #only 34 observations for APPEALING=1;combine with 2
+        temp<-NLA$APPEALING-1; temp[temp==0]<-1 #change scale to 1:4
+      NLA$APPEALING<-ordered(temp,levels=1:4,labels=c('POOR','FAIR','GOOD','BEST')) #convert to ordered factor
+    #SWIMMABILITY
+      table(NLA$SWIMMABILITY,useNA = c("ifany")) 
+        temp<-NLA$SWIMMABILITY;temp[temp=='UNSWIMMABLE']<-'POOR' #rename category "UNSWIMMALBLE" to "POOR"
+      NLA$SWIMMABILITY<-ordered(temp,levels=c('POOR','FAIR','GOOD')) #convert to ordered factor
+    #PRISTINE
+      table(NLA$PRISTINE,useNA = c("ifany")) #only 51 observations for PRISTINE=1;combine with 2
+        temp<-NLA$PRISTINE-1; temp[temp==0]<-1 #change scale to 1:4
+      NLA$PRISTINE<-ordered(temp,levels=1:4,labels=c('POOR','FAIR','GOOD','BEST')) #convert to ordered factor
+    #BIOTIC_INTEGRITY
+      table(NLA$BIOTIC_INTEGRITY,useNA = c("ifany")) #only 66 observations for POOR;combine with GOOD
+        temp<-rep.int(NA,nrow(NLA))
+        temp[NLA$BIOTIC_INTEGRITY=='POOR']<-1
+        temp[NLA$BIOTIC_INTEGRITY=='FAIR']<-1
+        temp[NLA$BIOTIC_INTEGRITY=='GOOD']<-2
+        temp[NLA$BIOTIC_INTEGRITY=='EXCELLENT']<-3  #rename this to 'BEST'
+      NLA$BIOTIC_INTEGRITY<-ordered(temp,levels=1:3,labels=c('FAIR','GOOD','BEST')) #convert to ordered factor
+    #RECREATIONAL_VALUE
+      table(NLA$RECREATIONAL_VALUE,useNA = c("ifany")) #only 97 observations for POOR;combine with GOOD
+        temp<-rep.int(NA,nrow(NLA))
+        temp[NLA$RECREATIONAL_VALUE=='POOR']<-1
+        temp[NLA$RECREATIONAL_VALUE=='FAIR']<-1
+        temp[NLA$RECREATIONAL_VALUE=='GOOD']<-2
+        temp[NLA$RECREATIONAL_VALUE=='EXCELLENT']<-3
+      NLA$RECREATIONAL_VALUE<-ordered(temp,levels=1:3,labels=c('FAIR','GOOD','BEST')) #convert to ordered factor
+  str(NLA)
+```
+
+```{r getShp, include=FALSE, echo=FALSE, cache=FALSE}
+  #Get the lake centroids, area, perimeter, and shoreline development index from the NLA Lake Poly shapefile
+    #ESRI GCS_North_American_1983
+      NAD83<-CRS("+proj=longlat +datum=NAD83")
+    
+    #ESRI USA Contiguous Albers Equal Area Conic (used by MRB1 WBIDLakes as AlbersX and AlbersY)
+      AlbersContiguous<-CRS('+proj=aea +x_0=0 +y_0=0 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +units=m +datum=NAD83')
+    
+    #Get the lake shapefile
+      LakeShp<-readShapePoly('C:/Bryan/EPA/Data/NLA_2007/GIS/gis_final/National_LakePoly.shp',proj4string=NAD83)
+    
+    #Get the Lake area, perim, and Shoreline Development
+      SHP<-slot(LakeShp, "data")
+      
+    #reproject to albers
+      LakeShpAlb<-spTransform(LakeShp,AlbersContiguous)
+    
+    #Create a Data Frame of the lake centroids
+      Centroids<-data.frame(LakeShpAlb$SITEID,coordinates(LakeShpAlb)) #centroids
+      names(Centroids)<-c('SITE_ID','AlbersX','AlbersY')
+    #Add Centroids to SHP
+      SHP<-data.frame(Centroids,SHP[,3:5])
+    #Convert SITE_ID from factor to character so 2 sites can be renamed
+      SHP$SITE_ID<-as.character(SHP$SITE_ID)
+    #Rename SITE_ID's to make them consistent with the database
+      SHP$SITE_ID[SHP$SITE_ID=="NLA06608-WI:Lowes"]<-"NLA06608-WI:LOWES"
+      SHP$SITE_ID[SHP$SITE_ID=="NLA06608-WI:Sy"]<-"NLA06608-WI:SY"
+    #rename SITE_ID to NLA_ID for consistency
+      names(SHP)[1]<-'NLA_ID' 
+```
+
+```{r getMorpho, include=FALSE, echo=FALSE, cache=FALSE}
+  # Get Jeff's lake morphometry data
+    Morpho<- read.csv("C:/Bryan/EPA/Data/LakeMorhpo/nlaLakeMorpho.csv",stringsAsFactors=F)
+      names(Morpho)[4]<-'NLA_ID'
+    Morpho[Morpho$NLA_ID=='NLA06608-2477',] #this lakes is in the DB twice.  Values similar choose first to keep.
+  #delete first three columns 
+  #NLA06608-2477 is in the DB twice.  Values similar choose first to keep. Eliminate row# 249
+  #delete columns "SurfaceArea", "ShorelineLength", "MaxDepthNLA", & "ShorelineDev"  these are in SHP above
+    Morpho<-Morpho[-249,-c(1:3,5:8)]
+```
+
+```{r createLakes, include=FALSE, echo=FALSE, cache=FALSE}
+#Merge SHP, WQ, T1m, & dd
+  nrow(NLA) #1151
+  nrow(NLCD)#1153
+  nrow(SHP) #1159
+  nrow(Morpho) #1155
+  Lakes<-merge(NLA,SHP,by='NLA_ID',all.x=TRUE);nrow(Lakes) #1151
+  Lakes<-merge(Lakes,Morpho,by='NLA_ID',all.x=TRUE);nrow(Lakes) #1151
+  Lakes<-merge(Lakes,NLCD,by='NLA_ID',all.x=TRUE);nrow(Lakes) #1151
+'''
+
+************
+**bioV**: NLA water quality data, NLA microcystin data, and biovolume data from Lester Yuan.
+
+'data.frame':  1148 obs. of  68 variables: 
+
+**Field**  | **Definition**
+------------- | ------------- 
+NLA_ID|ID assigned to each site
+AlbersX|(m) ESRI USA Contiguous Albers Equal Area Conic X coordinate in from National_LakePoly.shp
+AlbersY|(m) ESRI USA Contiguous Albers Equal Area Conic Y coordinate in from National_LakePoly.shp
+LakeArea|(km2) Lake Area from attribute table of from National_LakePoly.shp
+LakePerim|(km) Lake Perimeter from attribute table of from National_LakePoly.shp
+ShoreDevel|Shoreline development index from attribute table of from National_LakePoly.shp
+DATE_COL|Date of site visit
+WSA_ECO9|Wadeable Streams Assessment Aggregated Ecoregion; see definitions below
+BASINAREA|(km2) Area of lake basin (upstream area) from attribute table of from National_LakePoly.shp
+DEPTHMAX|(m) Maximum Observed Lake Depth 
+ELEV_PT|(m) Site elevation from the National Elevation Dataset
+CHLA|Chlorophyll a concentration (µg/L).  
+DO2_2M|MEAN DO2 CONC (mg/L) IN UPPER 2m (or UPPER 50% IF DEPTH < 4m)
+PH_FIELD|Field pH from Profile DO data (pH measured at first non-zero depth unless only depth was zero)
+COND|Conductivity (uS/cm @ 25 C)
+ANC|Gran ANC (ueq/L)
+TURB|Turbidity (NTU)
+TOC|Total Organic Carbon (mg/L)
+DOC|Dissolved Organic Carbon (mg/L)
+NH4|Ammonium (ueq/L)
+NO3_NO2|Nitrate + Nitrite by Flow Injection Analysis (mg N/L)
+NTL|Total Nitrogen (ug/L)
+PTL|Total Phosphorus (ug/L)
+CL|Chloride (ueq/L)
+NO3|Nitrate (ueq/L)
+SO4|Sulfate (ueq/L)
+CA|Calcium (ueq/L)
+MG|Magnesium (ueq/L)
+Na|Sodium (ueq/L)
+K|Potassium (ueq/L)
+COLOR|Color (PCU)
+SIO2|Silica (mg/L SiO2)
+H|H+ from PH_LAB (ueq/L)
+OH|Hydroxide from PH_LAB (ueq/L)
+NH4ION|Calculated NH4+ protolyte (ueq/L)
+CATSUM|Sum of Cations (ueq/L)
+ANSUM2|Sum of Anions using ANC (ueq/L)
+ANDEF2|Anion Deficit using ANC (C - A) (ueq/L)
+SOBC|Sum of Base Cations (ueq/L)
+BALANCE2|Ion Balance using ANC (%)
+ORGION|Est. Organic Anion (ueq/L)
+CONCAL2|Calculated Conductivity w/ANC (uS/cm)
+CONDHO2|D-H-O Calc. Cond. w/ANC (uS/cm)
+SECMEAN|Secchi transparency (m)(=avg. of disk disappearance and reappearance depths)
+MaxLength|(m) the maximum distance on the lake surface between any two points on the shore line.
+MaxWidth|(m) The maximum distance between the shores perpendicular to the line of maximum length.
+MeanWidth|(m) the surface area divided by the maximum length.
+FetchN| (m) max N to S length of lake surface area without land interruption that wind can act on.
+FetchNE|(m) max NE to SW length of lake surface area without land interruption that wind can act on.
+FetchE|(m) max E to W length of lake surface area without land interruption that wind can act on.
+FetchSE|(m) max SE to NW length of lake surface area without land interruption that wind can act on.
+MaxDepthCorrect|(m) Max estimated depth-See Hollister et al 2011
+VolumeCorrect|(m3) Estimated Volume
+MeanDepthCorrect|(m) VolumeCorrect/SurfaceArea; based on corrected maximum depth
+********
+**WSA_ECO9 Ecoregions**
+
+**WSA_ECO9**      | **Ecoregions**
+------------- | ------------- 
+CPL | Coastal Plains
+NAP|  Northern Appalachians
+NPL|	Northern Plains
+SAP|	Southern Appalachians
+SPL|	Southern Plains
+TPL|	Temporate Plains
+UMW|	Upper Midwest
+WMT|	Western Mountains
+XER|	Xeric
+
+
+********
+
+
+##################save the data
+save(hkm2014Data,file='./data/hkm2014Data.rda')  
+
+
+####################Load the hkm2014Data
+#Data Definitions:  
+browseURL('https://github.com/jhollist/hkm2014/blob/master/data/hkm2014Data.md')
+#Get the hkm2014Data
+load(url('https://raw.github.com/jhollist/hkm2014/master/data/hkm2014Data.rda'))
+
